@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>麻雀×地図（スマホ版）</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <style>
+    :root{
+      --pad: 12px;
+      --radius: 16px;
+      --shadow: 0 10px 30px rgba(0,0,0,.18);
+      --bg: #0b0d12;
+      --card: #111522;
+      --text: #e8ecf3;
+      --muted: #a8b0c2;
+      --line: rgba(255,255,255,.12);
+      --btn: #2a6df6;
+      --btn2:#1d2334;
+    }
+
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", sans-serif; }
+
+    /* Map full screen */
+    #map { position: fixed; inset: 0; }
+
+    /* Top info bar */
+    .topbar{
+      position: fixed;
+      top: env(safe-area-inset-top);
+      left: 0; right: 0;
+      padding: 10px var(--pad);
+      display:flex; align-items:center; justify-content:space-between;
+      gap: 10px;
+      pointer-events: none; /* allow map interactions */
+    }
+    .chip{
+      pointer-events: auto;
+      background: rgba(17,21,34,.9);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(8px);
+      max-width: 70vw;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chip strong{ font-weight: 700; }
+    .chip button{
+      all: unset;
+      cursor: pointer;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    /* Bottom sheet */
+    .sheet{
+      position: fixed;
+      left: 0; right: 0;
+      bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom);
+      transform: translateY(0);
+      transition: transform .18s ease;
+      pointer-events: none; /* allow map interactions except inside */
+    }
+    .sheet-inner{
+      pointer-events: auto;
+      margin: 0 var(--pad) var(--pad);
+      background: rgba(17,21,34,.96);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(10px);
+    }
+
+    .handle{
+      display:flex; align-items:center; justify-content:center;
+      padding: 10px 0 2px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .handle::before{
+      content:"";
+      width: 48px; height: 5px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.25);
+    }
+
+    .content{ padding: 10px var(--pad) var(--pad); }
+    h1{
+      font-size: 14px; margin: 0 0 10px;
+      display:flex; align-items:center; justify-content:space-between;
+      gap: 10px;
+    }
+    .muted{ color: var(--muted); font-size: 12px; line-height: 1.4; }
+
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    label{ display:block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+
+    select, input, textarea{
+      width:100%;
+      padding: 12px 12px;
+      box-sizing:border-box;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #0f1422;
+      color: var(--text);
+      outline: none;
+      font-size: 15px;
+    }
+    textarea{ height: 120px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+    .btnrow{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 10px 0 0;
+    }
+    button{
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 12px;
+      font-size: 15px;
+      color: var(--text);
+      background: var(--btn2);
+      cursor: pointer;
+    }
+    button.primary{ background: var(--btn); font-weight: 800; }
+    button:active{ transform: translateY(1px); }
+
+    .stats{
+      display:flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .badge{
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: rgba(15,20,34,.7);
+    }
+
+    /* collapsed state */
+    .collapsed .content{ display:none; }
+    .collapsed .sheet-inner{ border-radius: 999px; }
+    .collapsed .handle{ padding: 14px 0; }
+
+    /* Make Leaflet controls not hidden behind safe areas */
+    .leaflet-top { top: calc(env(safe-area-inset-top) + 56px); }
+    .leaflet-bottom { bottom: calc(env(safe-area-inset-bottom) + 140px); }
+
+    @media (min-width: 900px){
+      /* PCで開いたときは少し広めに */
+      .sheet-inner{ max-width: 520px; margin: 0 auto var(--pad); }
+      .topbar{ padding: 14px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+
+  <div class="topbar">
+    <div class="chip" id="curChip"><strong>現在地</strong>：-</div>
+    <div class="chip"><button id="fitBtn">全体表示</button></div>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <div class="sheet-inner" id="sheetInner">
+      <div class="handle" id="handle"></div>
+
+      <div class="content">
+        <h1>
+          麻雀×地図（3麻）スマホ版
+          <span class="muted">ボトムシート</span>
+        </h1>
+
+        <div class="muted">
+          スタート：新宿三角ビル / ルール：勝者の家の方角へ「点数×倍率(km)」進む
+        </div>
+
+        <div class="grid">
+          <div>
+            <label>勝った家（方角）</label>
+            <select id="winner">
+              <option value="E">東（→東へ）</option>
+              <option value="S">南（→南へ）</option>
+              <option value="W">西（→西へ）</option>
+            </select>
+          </div>
+          <div>
+            <label>上がり点（1000点単位）</label>
+            <input id="points" type="number" min="0" step="1" value="8" inputmode="numeric"/>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div>
+            <label>倍率（km / 入力1）</label>
+            <input id="kmPerUnit" type="number" min="0" step="1" value="50" inputmode="numeric"/>
+          </div>
+          <div>
+            <label>局名（任意）</label>
+            <input id="handName" type="text" placeholder="例：東1局"/>
+          </div>
+        </div>
+
+        <div class="btnrow">
+          <button class="primary" id="addBtn">追加して進む</button>
+          <button id="undoBtn">直前取り消し</button>
+        </div>
+
+        <div class="btnrow">
+          <button id="resetBtn">最初から</button>
+          <button id="copyBtn">ログをコピー</button>
+        </div>
+
+        <div class="stats">
+          <div class="badge">局数：<span id="count">0</span></div>
+          <div class="badge">現在地：<span id="currentText">-</span></div>
+        </div>
+
+        <label>ログ（CSV風）</label>
+        <textarea id="log" readonly></textarea>
+
+        <div class="muted" style="margin-top:10px;">
+          ヒント：パネルは上のバー（取っ手）をタップで折りたためます。
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // 新宿住友ビル（三角広場付近）
+  const START = { lat: 35.6917436, lng: 139.6924861 };
+
+  // Bearings: East, South, West
+  const BEARING = { E: 90, S: 180, W: 270 };
+
+  // Great-circle destination
+  function destinationPoint(latDeg, lngDeg, bearingDeg, distanceKm) {
+    const R = 6371.0088;
+    const toRad = d => d * Math.PI / 180;
+    const toDeg = r => r * 180 / Math.PI;
+
+    const lat1 = toRad(latDeg);
+    const lon1 = toRad(lngDeg);
+    const brng = toRad(bearingDeg);
+    const dByR = distanceKm / R;
+
+    const sinLat1 = Math.sin(lat1), cosLat1 = Math.cos(lat1);
+    const sinD = Math.sin(dByR), cosD = Math.cos(dByR);
+
+    const lat2 = Math.asin(sinLat1 * cosD + cosLat1 * sinD * Math.cos(brng));
+    const lon2 = lon1 + Math.atan2(
+      Math.sin(brng) * sinD * cosLat1,
+      cosD - sinLat1 * Math.sin(lat2)
+    );
+
+    let lon2Deg = (toDeg(lon2) + 540) % 360 - 180;
+    return { lat: toDeg(lat2), lng: lon2Deg };
+  }
+
+  // Map init
+  const map = L.map('map', { zoomControl: true }).setView([START.lat, START.lng], 10);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  const startMarker = L.marker([START.lat, START.lng]).addTo(map).bindPopup('スタート：新宿三角ビル');
+  let currentMarker = L.marker([START.lat, START.lng]).addTo(map).bindPopup('現在地');
+  let polyline = L.polyline([[START.lat, START.lng]], { weight: 4 }).addTo(map);
+  let handMarkers = [];
+
+  // State
+  let hands = [];
+  let path = [START];
+
+  // UI
+  const elWinner = document.getElementById('winner');
+  const elPoints = document.getElementById('points');
+  const elKmPerUnit = document.getElementById('kmPerUnit');
+  const elHandName = document.getElementById('handName');
+  const elLog = document.getElementById('log');
+  const elCurrentText = document.getElementById('currentText');
+  const elCount = document.getElementById('count');
+  const elCurChip = document.getElementById('curChip');
+
+  function formatLL(p){ return `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`; }
+
+  function render(){
+    const cur = path[path.length - 1];
+    const curText = formatLL(cur);
+    elCurrentText.textContent = curText;
+    elCurChip.innerHTML = `<strong>現在地</strong>：${curText}`;
+    elCount.textContent = hands.length;
+
+    currentMarker.setLatLng([cur.lat, cur.lng]);
+    currentMarker.setPopupContent(`現在地：${curText}`);
+
+    polyline.setLatLngs(path.map(p => [p.lat, p.lng]));
+
+    let lines = [];
+    lines.push("idx,hand,winner,pointsUnit,kmPerUnit,distKm,lat,lng");
+    hands.forEach((h,i)=>{
+      lines.push([
+        i+1,
+        (h.name||""),
+        h.winner,
+        h.pointsUnit,
+        h.kmPerUnit,
+        h.distKm.toFixed(1),
+        h.lat.toFixed(6),
+        h.lng.toFixed(6),
+      ].join(","));
+    });
+    elLog.value = lines.join("\n");
+  }
+
+  function addHand(){
+    const winner = elWinner.value;
+    const pointsUnit = Number(elPoints.value || 0);
+    const kmPerUnit = Number(elKmPerUnit.value || 0);
+    const name = elHandName.value.trim();
+
+    if (!Number.isFinite(pointsUnit) || pointsUnit < 0) return alert("上がり点（入力値）は0以上で");
+    if (!Number.isFinite(kmPerUnit) || kmPerUnit < 0) return alert("倍率は0以上で");
+
+    if (!Number.isFinite(kmPerUnit) || kmPerUnit <= 0) return alert("割る数は1以上で");
+const distKm = pointsUnit / kmPerUnit;
+
+    const cur = path[path.length - 1];
+    const next = destinationPoint(cur.lat, cur.lng, BEARING[winner], distKm);
+
+    const hand = { name, winner, pointsUnit, kmPerUnit, distKm, lat: next.lat, lng: next.lng };
+    hands.push(hand);
+    path.push(next);
+
+    const label = name || `局 ${hands.length}`;
+    const m = L.marker([next.lat, next.lng]).addTo(map).bindPopup(
+      `<b>${label}</b><br/>勝者: ${winner}<br/>距離: ${distKm.toFixed(1)} km<br/>座標: ${formatLL(next)}`
+    );
+    handMarkers.push(m);
+
+    elHandName.value = "";
+    render();
+
+    // スマホは追加後に地図見やすいよう少しズーム維持で中心移動
+    map.panTo([next.lat, next.lng], { animate: true, duration: 0.35 });
+  }
+
+  function undo(){
+    if (hands.length === 0) return;
+    hands.pop();
+    path.pop();
+    const m = handMarkers.pop();
+    if (m) map.removeLayer(m);
+    render();
+    const cur = path[path.length - 1];
+    map.panTo([cur.lat, cur.lng], { animate: true, duration: 0.25 });
+  }
+
+  function resetAll(){
+    hands = [];
+    path = [START];
+    handMarkers.forEach(m => map.removeLayer(m));
+    handMarkers = [];
+    map.setView([START.lat, START.lng], 10);
+    render();
+  }
+
+  function fitAll(){
+    const bounds = L.latLngBounds(path.map(p => [p.lat, p.lng]));
+    map.fitBounds(bounds.pad(0.2));
+  }
+
+  async function copyLog(){
+    try{
+      await navigator.clipboard.writeText(elLog.value);
+      alert("ログをコピーしました");
+    }catch{
+      // iOSで失敗することがあるのでフォールバック
+      elLog.focus();
+      elLog.select();
+      document.execCommand("copy");
+      alert("ログをコピーしました（互換モード）");
+    }
+  }
+
+  // bottom sheet toggle
+  const sheetInner = document.getElementById('sheetInner');
+  const handle = document.getElementById('handle');
+  handle.addEventListener('click', ()=> sheetInner.classList.toggle('collapsed'));
+
+  // buttons
+  document.getElementById('addBtn').addEventListener('click', addHand);
+  document.getElementById('undoBtn').addEventListener('click', undo);
+  document.getElementById('resetBtn').addEventListener('click', resetAll);
+  document.getElementById('fitBtn').addEventListener('click', fitAll);
+  document.getElementById('copyBtn').addEventListener('click', copyLog);
+
+  render();
+</script>
+</body>
+</html>
