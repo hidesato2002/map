@@ -354,7 +354,9 @@
     if (!Number.isFinite(pointsUnit) || pointsUnit < 0) return alert("上がり点（入力値）は0以上で");
     if (!Number.isFinite(kmPerUnit) || kmPerUnit < 0) return alert("倍率は0以上で");
 
-    const distKm = pointsUnit * kmPerUnit;
+    if (!Number.isFinite(kmPerUnit) || kmPerUnit <= 0) return alert("割る数は1以上で");
+const distKm = pointsUnit / kmPerUnit;
+
     const cur = path[path.length - 1];
     const next = destinationPoint(cur.lat, cur.lng, BEARING[winner], distKm);
 
